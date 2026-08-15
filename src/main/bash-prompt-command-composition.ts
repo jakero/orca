@@ -126,6 +126,16 @@ __orca_run_prompt_command_array() {
   fi
   return "$__orca_exit_code"
 }
+__orca_finish_legacy_prompt_dispatch() {
+  local __orca_suffix_part
+  if [[ -n "\${__orca_in_prompt_command:-}" ]]; then
+    for __orca_suffix_part in "\${__orca_prompt_command_suffix[@]+"\${__orca_prompt_command_suffix[@]}"}"; do
+      eval "$__orca_suffix_part"
+    done
+  fi
+  trap '__orca_osc133_preexec' DEBUG
+  unset __orca_in_legacy_prompt_wrapper
+}
 __orca_normalize_prompt_command() {
   [[ -z "\${__orca_prompt_command_normalized:-}" ]] || return 0
   local __orca_prompt_part
@@ -146,7 +156,7 @@ __orca_normalize_prompt_command() {
     __orca_prompt_status_variable="__orca_prompt_status_$$"
     __orca_prompt_status_capture_command="$__orca_prompt_status_variable=\\$?"
     __orca_prompt_status_value="\\\${$__orca_prompt_status_variable}"
-    PROMPT_COMMAND="$__orca_prompt_status_capture_command; __orca_prompt_status=$__orca_prompt_status_value"'; __orca_prompt_had_functrace=""; if [[ -o functrace ]]; then __orca_prompt_had_functrace=1; set +T; fi; __orca_outer_debug_trap_spec="$(trap -p DEBUG)"; [[ -z "$__orca_prompt_had_functrace" ]] || set -T; unset __orca_prompt_had_functrace; __orca_run_prompt_command_array; trap "__orca_osc133_preexec" DEBUG; unset __orca_in_legacy_prompt_wrapper'
+    PROMPT_COMMAND="$__orca_prompt_status_capture_command; __orca_prompt_status=$__orca_prompt_status_value"'; __orca_prompt_had_functrace=""; if [[ -o functrace ]]; then __orca_prompt_had_functrace=1; set +T; fi; __orca_outer_debug_trap_spec="$(trap -p DEBUG)"; [[ -z "$__orca_prompt_had_functrace" ]] || set -T; unset __orca_prompt_had_functrace; __orca_run_prompt_command_array; __orca_finish_legacy_prompt_dispatch'
   fi
 }
 __orca_prepend_prompt_command() {

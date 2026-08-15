@@ -339,6 +339,15 @@ describePosix('local PTY shell-ready launch config', () => {
     expectBashOsc133Lifecycle(output)
   })
 
+  itWithBash('emits lifecycle for foreground text ending like an internal hook', async () => {
+    const { getBashShellReadyRcfileContent } = await importFreshLocalPtyShellReady()
+    const input = 'echo user:__orca_osc133_prompt_done\nfalse\nexit 0\n'
+    const output = runInteractiveBashRcfile(getBashShellReadyRcfileContent(), userDataPath, input)
+
+    expect(output).toContain('user:__orca_osc133_prompt_done')
+    expectBashOsc133Lifecycle(output)
+  })
+
   itWithBash(
     'preserves prompt hooks and existing DEBUG traps without fake command markers',
     async () => {

@@ -90,6 +90,16 @@ describe.skipIf(process.platform === 'win32')('daemon bash PROMPT_COMMAND compos
     expectLifecycle(output, 0)
   })
 
+  itWithBash('finishes lifecycle after a top-level return in an inherited hook', () => {
+    const output = runInteractiveBash(
+      'PROMPT_COMMAND=\'printf "PROMPT_RETURN\\n"; true && return 0\'\n',
+      tempHome
+    )
+
+    expect(output.match(/PROMPT_RETURN\r?\n/g)).toHaveLength(3)
+    expectLifecycle(output)
+  })
+
   itWithBash('composes an unset PROMPT_COMMAND with nounset enabled', () => {
     const output = runInteractiveBash('set -u\nunset PROMPT_COMMAND\n', tempHome)
 

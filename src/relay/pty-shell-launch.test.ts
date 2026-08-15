@@ -244,6 +244,15 @@ describe('getRelayShellLaunchConfig', () => {
     expectBashOsc133Lifecycle(output)
   })
 
+  itWithBash('emits lifecycle for foreground text ending like an internal hook', () => {
+    const config = getRelayShellLaunchConfig('/bin/bash', { HOME: homeDir })
+    const input = 'echo user:__orca_osc133_prompt_done\nfalse\nexit 0\n'
+    const output = runInteractiveBashRcfile(config.args[1] as string, homeDir, input)
+
+    expect(output).toContain('user:__orca_osc133_prompt_done')
+    expectBashOsc133Lifecycle(output)
+  })
+
   itWithBash('preserves relay bash prompt hooks and DEBUG traps without fake markers', () => {
     writeFileSync(
       join(homeDir, '.bash_profile'),
