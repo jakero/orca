@@ -23,6 +23,7 @@ import {
 } from './floating-workspace-directory'
 import { isMarkdownDocumentName, markdownDocumentFromFilePath } from './markdown-documents'
 import { registerRendererShutdownCheckpointHandler } from './renderer-shutdown-checkpoint'
+import { readMacKeyboardLayoutSnapshot } from './macos-keyboard-layout-snapshot'
 
 const KEYBOARD_INPUT_SOURCE_TIMEOUT_MS = 500
 const MAC_HITOOLBOX_DOMAIN = 'com.apple.HIToolbox'
@@ -281,6 +282,8 @@ export function registerAppHandlers(store: Store, options: RegisterAppHandlersOp
       return null
     }
   })
+
+  ipcMain.handle('app:getKeyboardLayoutSnapshot', () => readMacKeyboardLayoutSnapshot())
 
   ipcMain.handle('app:relaunch', async () => {
     // Why: brief delay lets the renderer paint "Restarting…" before the window tears down.
