@@ -34,14 +34,23 @@ function hasManagedCommand(hook: TestHook, matcher: (command: string | undefined
 }
 
 describe('getWindowsManagedLifecycleHook', () => {
-  it('resolves the managed script from the runtime Windows profile', () => {
+  it('resolves the managed script from the runtime Windows profile, as a single command string', () => {
     const scriptPath = 'C:\\Users\\%name%\\a^b&c\\.orca\\agent-hooks\\claude-hook.cmd'
     const hook = getWindowsManagedLifecycleHook(scriptPath)
 
-    expect(hook.args?.[0]).toBe('--headless')
-    expect(hook.args?.[1]).toMatch(/\\System32\\cmd\.exe$/i)
-    expect(hook.args?.at(-1)).toBe('%USERPROFILE%\\.orca\\agent-hooks\\claude-hook.cmd')
-    expect(hook.args).not.toContain(scriptPath)
+    // Why (#14815): a separate `args` array isn't honored by every Claude-hooks-compat consumer,
+    // so the invocation must be a single self-contained `command` string.
+    expect(hook.args).toBeUndefined()
+    expect(hook.command).toMatch(/\/conhost\.exe --headless \S+\/powershell\.exe /)
+    expect(hook.command).not.toContain(scriptPath)
+    // Why: no backslash path or `/`-prefixed switch outside the base64 payload — both get
+    // mangled when a Claude-hooks-compat consumer runs the command through Git Bash/MSYS.
+    expect(hook.command.replace(/-EncodedCommand \S+$/, '')).not.toMatch(/\\| \/[a-zA-Z]( |$)/)
+
+    const encoded = hook.command.match(/-EncodedCommand (\S+)$/)?.[1]
+    const decoded = Buffer.from(encoded ?? '', 'base64').toString('utf16le')
+    expect(decoded).toContain('$env:USERPROFILE')
+    expect(decoded).toContain('.orca\\agent-hooks\\claude-hook.cmd')
   })
 })
 
@@ -339,7 +348,7 @@ describe('ClaudeHookService.install', () => {
   })
 
   it.skipIf(process.platform !== 'win32')(
-    'runs portable managed hooks through headless exec form',
+    'runs portable managed hooks through a single headless command string',
     () => {
       const tmpHome = mkdtempSync(join(tmpdir(), 'orca claude home with spaces '))
       vi.stubEnv('HOME', tmpHome)
@@ -351,24 +360,18 @@ describe('ClaudeHookService.install', () => {
           readFileSync(join(tmpHome, '.claude', 'settings.json'), 'utf-8')
         ) as { hooks: Record<string, { hooks: TestHook[] }[]> }
 
-        const system32 = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32')
         const scriptPath = join(tmpHome, '.orca', 'agent-hooks', CLAUDE_SCRIPT_FILE_NAME)
-        const runtimeScriptPath = join(
-          '%USERPROFILE%',
-          '.orca',
-          'agent-hooks',
-          CLAUDE_SCRIPT_FILE_NAME
-        )
 
         for (const eventName of ['UserPromptSubmit', 'Stop', 'StopFailure']) {
           const hook = settings.hooks[eventName]?.[0]?.hooks?.[0]
-          expect(hook).toEqual({
-            type: 'command',
-            command: join(system32, 'conhost.exe'),
-            args: ['--headless', join(system32, 'cmd.exe'), '/d', '/c', runtimeScriptPath],
-            timeout: 10
-          })
-          expect(hook.args).not.toContain(scriptPath)
+          expect(hook?.args).toBeUndefined()
+          expect(hook?.command).toMatch(/\/conhost\.exe --headless \S+\/powershell\.exe /)
+          expect(hook?.command).not.toContain(scriptPath)
+
+          const encoded = hook?.command.match(/-EncodedCommand (\S+)$/)?.[1]
+          const decoded = Buffer.from(encoded ?? '', 'base64').toString('utf16le')
+          expect(decoded).toContain('$env:USERPROFILE')
+          expect(decoded).toContain(`.orca\\agent-hooks\\${CLAUDE_SCRIPT_FILE_NAME}`)
         }
       } finally {
         vi.unstubAllEnvs()

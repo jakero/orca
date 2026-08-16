@@ -16,19 +16,19 @@ import { wrapRuntimeHomeHookCommand } from '../agent-hooks/runtime-home-hook-com
 export type ClaudeCompatibleHookSettings = {
   configDirName: '.claude' | '.openclaude'
   scriptBaseName: 'claude-hook' | 'openclaude-hook'
-  supportsExecHookArgs: boolean
+  usesWindowsHeadlessHook: boolean
 }
 
 export const CLAUDE_HOOK_SETTINGS: ClaudeCompatibleHookSettings = {
   configDirName: '.claude',
   scriptBaseName: 'claude-hook',
-  supportsExecHookArgs: true
+  usesWindowsHeadlessHook: true
 }
 
 export const OPENCLAUDE_HOOK_SETTINGS: ClaudeCompatibleHookSettings = {
   configDirName: '.openclaude',
   scriptBaseName: 'openclaude-hook',
-  supportsExecHookArgs: false
+  usesWindowsHeadlessHook: false
 }
 
 export const CLAUDE_EVENTS = [
@@ -120,25 +120,37 @@ export function getManagedLifecycleHook(
   scriptPath: string,
   settings = CLAUDE_HOOK_SETTINGS
 ): HookCommandConfig {
-  if (process.platform !== 'win32' || !settings.supportsExecHookArgs) {
+  if (process.platform !== 'win32' || !settings.usesWindowsHeadlessHook) {
     return buildManagedCommandHook(getManagedCommand(scriptPath))
   }
   return getWindowsManagedLifecycleHook(scriptPath)
 }
 
+// Why: a `command`+`args` exec-form entry isn't honored by every Claude-hooks-compat consumer —
+// cursor-agent drops `args` and spawns bare conhost.exe, stranding a visible console per hook
+// event (#14815). Folding everything into a single `command` string sidesteps that. Only
+// `-`-prefixed switches appear outside the base64 payload (no backslash paths, no `/`-prefixed
+// switches), so Git Bash/MSYS can't mangle it either (`/d`, `/c`, and backslash drive paths all
+// get rewritten when passed through bash — see #14815's constraint list).
 export function getWindowsManagedLifecycleHook(scriptPath: string): HookCommandConfig {
-  const system32 = win32.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32')
-  const runtimeScriptPath = win32.join(
-    '%USERPROFILE%',
-    '.orca',
-    'agent-hooks',
-    win32.basename(scriptPath)
-  )
-  // Why: Claude's Windows shell form opens Git Bash consoles; exec form hosts the client in a windowless console.
+  const system32 = win32
+    .join(process.env.SystemRoot ?? 'C:\\Windows', 'System32')
+    .replaceAll('\\', '/')
+  const scriptFileName = win32.basename(scriptPath)
+  // Why: $env:USERPROFILE (resolved at run time by powershell.exe, not baked in) keeps the
+  // managed entry portable across machines/usernames (STA-3348), matching the prior cmd.exe
+  // %USERPROFILE% form.
+  const innerCommand =
+    `$scriptPath = Join-Path $env:USERPROFILE '.orca\\agent-hooks\\${scriptFileName}'; ` +
+    'if (Test-Path -LiteralPath $scriptPath -PathType Leaf) { & $scriptPath; exit $LASTEXITCODE }; ' +
+    '[Console]::In.ReadToEnd() | Out-Null; exit 0'
+  const encodedCommand = Buffer.from(innerCommand, 'utf16le').toString('base64')
   return {
     type: 'command',
-    command: win32.join(system32, 'conhost.exe'),
-    args: ['--headless', win32.join(system32, 'cmd.exe'), '/d', '/c', runtimeScriptPath],
+    command:
+      `${system32}/conhost.exe --headless ` +
+      `${system32}/WindowsPowerShell/v1.0/powershell.exe ` +
+      `-NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encodedCommand}`,
     timeout: MANAGED_HOOK_TIMEOUT_SECONDS
   }
 }
